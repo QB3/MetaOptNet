@@ -45,6 +45,8 @@ def get_model(options):
         cls_head = ClassificationHead(base_learner='R2D2').cuda()
     elif opt.head == 'SVM':
         cls_head = ClassificationHead(base_learner='SVM-CS').cuda()
+    elif opt.head == 'Sparse-SVM':
+        cls_head = ClassificationHead(base_learner='Sparse-SVM').cuda()
     else:
         print ("Cannot recognize the classification head type")
         assert(False)
@@ -91,7 +93,7 @@ if __name__ == '__main__':
     parser.add_argument('--network', type=str, default='ProtoNet',
                             help='choose which embedding network to use. ProtoNet, R2D2, ResNet')
     parser.add_argument('--head', type=str, default='ProtoNet',
-                            help='choose which embedding network to use. ProtoNet, Ridge, R2D2, SVM')
+                            help='choose which embedding network to use. ProtoNet, Ridge, R2D2, SVM, Sparse-SVM')
     parser.add_argument('--dataset', type=str, default='miniImageNet',
                             help='choose which classification head to use. miniImageNet, tieredImageNet, CIFAR_FS, FC100')
 

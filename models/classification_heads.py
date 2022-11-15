@@ -4,7 +4,9 @@ import sys
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
+import torch.nn.functional as F
 from qpth.qp import QPFunction
+from functorch import vmap, grad
 
 
 def computeGramMatrix(A, B):
@@ -63,6 +65,39 @@ def batched_kronecker(matrix1, matrix2):
     matrix1_flatten = matrix1.reshape(matrix1.size()[0], -1)
     matrix2_flatten = matrix2.reshape(matrix2.size()[0], -1)
     return torch.bmm(matrix1_flatten.unsqueeze(2), matrix2_flatten.unsqueeze(1)).reshape([matrix1.size()[0]] + list(matrix1.size()[1:]) + list(matrix2.size()[1:])).permute([0, 1, 3, 2, 4]).reshape(matrix1.size(0), matrix1.size(1) * matrix2.size(1), matrix1.size(2) * matrix2.size(2))
+
+
+def SparseMetaOptNetHead_SVM_dual(query, support, support_labels, n_way, n_shot, stepsize=0.01, num_steps=10):
+    def prox(params):
+        return params  # TODO
+
+    def inner_model(params, inputs):
+        return torch.matmul(inputs, params)
+
+    def inner_loss(params, inputs, targets):
+        predictions = inner_model(params, inputs)
+        return F.cross_entropy(predictions, targets)
+
+    # TODO: custom root
+    def inner_solver(inputs, targets):
+        n_support = inputs.size(1)
+        params = torch.zeros(
+            (inputs.shape[0], n_support, n_way),
+            dtype=inputs.dtype,
+            device=inputs.device,
+            requires_grad=True
+        )
+        with torch.enable_grad():
+            for _ in range(num_steps):
+                grads = vmap(grad(inner_loss))(params, inputs, targets)
+                params = prox(params - stepsize * grads)
+        
+        return params
+
+    params = inner_solver(support, support_labels)
+    query_predictions = vmap(inner_model)(params, query)
+    return query_predictions
+
 
 def MetaOptNetHead_Ridge(query, support, support_labels, n_way, n_shot, lambda_reg=50.0, double_precision=False):
     """
@@ -598,6 +633,8 @@ class ClassificationHead(nn.Module):
             self.head = MetaOptNetHead_SVM_WW
         elif ('SparseLogReg' in base_learner):
             self.head = SparseLogRegHead
+        elif ('Sparse-SVM' in base_learner):
+            self.head = SparseMetaOptNetHead_SVM_dual
         else:
             print ("Cannot recognize the base learner type")
             assert(False)
