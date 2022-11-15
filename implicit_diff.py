@@ -35,7 +35,7 @@ import torch.nn.functional as F
 
 import torchopt
 from torchopt import pytree
-from torchopt.pytree import tree_sub_scalar_mul, tree_sub
+from torchopt.pytree import tree_sub_scalar_mul, tree_sub, tree_matmul
 
 from omniglot_loaders import OmniglotNShot  # isort: skip
 
@@ -321,7 +321,47 @@ def train_imaml_inner_solver(params, meta_params, data, aux):
 
     return params
 
+# @torchopt.diff.implicit.custom_root(
+#     root,
+#     # functorch.grad(imaml_objective, argnums=0),
+#     argnums=1,
+#     has_aux=False,
+#     solve=torchopt.linear_solve.solve_normal_cg(maxiter=5, atol=0),
+# )
+# def train_imaml_inner_solver(params, meta_params, data, aux):
+#     x_spt, y_spt = data
+#     fnet, n_inner_iter, reg_param = aux
+#     # Initial functional optimizer based on TorchOpt
+#     inner_opt = torchopt.sgd(lr=1e-1)
+#     inner_opt_state = inner_opt.init(params)
+#     with torch.enable_grad():
+#         # Temporarily enable gradient computation for conducting the optimization
+#         for _ in range(n_inner_iter):
+#             pred = fnet(params, x_spt)
+#             datafit_loss = F.cross_entropy(pred, y_spt)  # compute loss
+#             # Compute regularization loss
+#             regularization_loss = 0
+#             for p1, p2 in zip(params, meta_params):
+#                 regularization_loss += 0.5 * reg_param * torch.sum(torch.square(p1 - p2))
+#             final_loss = datafit_loss + regularization_loss
+#             grads = torch.autograd.grad(final_loss, params)  # compute gradients
+#             # params = prox(params - stepsize * grads)
+#             updates, inner_opt_state = inner_opt.update(
+#                 grads, inner_opt_state, inplace=True
+#             )  # get updates
+#             params = torchopt.apply_updates(params, updates, inplace=True)
+#             stepsize = 0.01
+#             params = ST_pytree(params, stepsize * reg_param)
 
+#     return params
+
+@torchopt.diff.implicit.custom_root(
+    root,
+    # functorch.grad(imaml_objective, argnums=0),
+    argnums=1,
+    has_aux=False,
+    solve=torchopt.linear_solve.solve_normal_cg(maxiter=5, atol=0),
+)
 def test_imaml_inner_solver(params, meta_params, data, aux):
     x_spt, y_spt = data
     fnet, n_inner_iter, reg_param = aux
@@ -331,8 +371,9 @@ def test_imaml_inner_solver(params, meta_params, data, aux):
     with torch.enable_grad():
         # Temporarily enable gradient computation for conducting the optimization
         for _ in range(n_inner_iter):
-            pred = fnet(params, x_spt)
-            loss = F.cross_entropy(pred, y_spt)  # compute loss
+            ypred = tree_matmul(meta_params, params)
+            # pred = fnet(params, x_spt)
+            loss = F.cross_entropy(ypred, y_spt)  # compute loss
             # Compute regularization loss
             regularization_loss = 0
             for p1, p2 in zip(params, meta_params):
