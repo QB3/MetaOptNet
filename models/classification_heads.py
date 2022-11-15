@@ -68,16 +68,28 @@ def batched_kronecker(matrix1, matrix2):
     return torch.bmm(matrix1_flatten.unsqueeze(2), matrix2_flatten.unsqueeze(1)).reshape([matrix1.size()[0]] + list(matrix1.size()[1:]) + list(matrix2.size()[1:])).permute([0, 1, 3, 2, 4]).reshape(matrix1.size(0), matrix1.size(1) * matrix2.size(1), matrix1.size(2) * matrix2.size(2))
 
 
-def SparseMetaOptNetHead_SVM_dual(query, support, support_labels, n_way, n_shot, stepsize=0.01, num_steps=10):
+def SparseMetaOptNetHead_SVM_dual(
+        query, support, support_labels, n_way, n_shot, stepsize=0.01,
+        num_steps=10, lamda2=0.01):
+    target_one_hot = F.one_hot(support_labels, n_way)
+    threshold = stepsize * lamda2
+    # def prox(params):
+    #     return F.softshrink(params, threshold)
     def prox(params):
         return params  # TODO
 
-    def inner_model(params, inputs):
-        return torch.matmul(inputs, params)
+    def inner_model(params_dual, query, support, target_one_hot):
+        result = torch.matmul(query, support.T)
+        result = torch.matmul(result, target_one_hot - params_dual)
+        return result
 
-    def inner_loss(params, inputs, targets):
-        predictions = inner_model(params, inputs)
-        return F.cross_entropy(predictions, targets)
+    def inner_loss(params_dual, inputs, targets_one_hot):
+        result = lamda2 * torch.sum(
+            torch.square(inputs.T @ (targets_one_hot - params_dual)))
+        result += torch.sum(targets_one_hot * params_dual)
+        return result
+        # predictions = inner_model(params, inputs)
+        # return F.cross_entropy(predictions, targets)
 
     def optimality_fun(params, inputs, targets):
         with torch.enable_grad():
@@ -97,15 +109,22 @@ def SparseMetaOptNetHead_SVM_dual(query, support, support_labels, n_way, n_shot,
                 params = prox(params - stepsize * grads)
             return params
 
-    n_feats = support.size(2)
-    init_params = torch.zeros(
-        (support.size(0), n_feats, n_way),
+    n_samples = support.size(1)
+    init_params_dual = torch.zeros(
+        (support.size(0), n_samples, n_way),
         dtype=support.dtype,
         device=support.device,
         requires_grad=True
     )
-    params = inner_solver(init_params, support, support_labels)
-    query_predictions = vmap(inner_model)(params, query)
+    # init_params = torch.zeros(
+    #     (support.size(0), n_feats, n_way),
+    #     dtype=support.dtype,
+    #     device=support.device,
+    #     requires_grad=True
+    # )
+    params_dual = inner_solver(init_params_dual, support, target_one_hot)
+    query_predictions = vmap(inner_model)(
+        params_dual, query, support, target_one_hot)
     return query_predictions
 
 
