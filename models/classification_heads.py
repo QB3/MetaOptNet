@@ -69,22 +69,22 @@ def batched_kronecker(matrix1, matrix2):
 
 
 def SparseMetaOptNetHead_SVM_dual(
-        query, support, support_labels, n_way, n_shot, stepsize=0.01,
-        num_steps=10, lamda2=0.01):
+        query, support, support_labels, n_way, n_shot, stepsize=0.0001,
+        num_steps=10, C=10_000):
     target_one_hot = F.one_hot(support_labels, n_way)
-    threshold = stepsize * lamda2
+    threshold = stepsize * C
     # def prox(params):
     #     return F.softshrink(params, threshold)
     def prox(params):
-        return params  # TODO
+        return F.softmax(params, dim=2)  # TODO
 
     def inner_model(params_dual, query, support, target_one_hot):
         result = torch.matmul(query, support.T)
         result = torch.matmul(result, target_one_hot - params_dual)
-        return result
+        return result / C
 
     def inner_loss(params_dual, inputs, targets_one_hot):
-        result = lamda2 * torch.sum(
+        result = C * torch.sum(
             torch.square(inputs.T @ (targets_one_hot - params_dual)))
         result += torch.sum(targets_one_hot * params_dual)
         return result
@@ -110,12 +110,12 @@ def SparseMetaOptNetHead_SVM_dual(
             return params
 
     n_samples = support.size(1)
-    init_params_dual = torch.zeros(
+    init_params_dual = torch.ones(
         (support.size(0), n_samples, n_way),
         dtype=support.dtype,
         device=support.device,
         requires_grad=True
-    )
+    ) / n_way
     # init_params = torch.zeros(
     #     (support.size(0), n_feats, n_way),
     #     dtype=support.dtype,
@@ -125,6 +125,7 @@ def SparseMetaOptNetHead_SVM_dual(
     params_dual = inner_solver(init_params_dual, support, target_one_hot)
     query_predictions = vmap(inner_model)(
         params_dual, query, support, target_one_hot)
+    import ipdb; ipdb.set_trace()
     return query_predictions
 
 

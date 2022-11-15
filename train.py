@@ -224,7 +224,7 @@ if __name__ == '__main__':
             train_accuracies.append(acc.item())
             train_losses.append(loss.item())
 
-            if (i % 100 == 0):
+            if (i % 10 == 0):
                 train_acc_avg = np.mean(np.array(train_accuracies))
                 log(log_file_path, 'Train Epoch: {}\tBatch: [{}/{}]\tLoss: {:.4f}\tAccuracy: {:.2f} % ({:.2f} %)'.format(
                             epoch, i, len(dloader_train), loss.item(), train_acc_avg, acc))
