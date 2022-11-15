@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from qpth.qp import QPFunction
 from functorch import vmap, grad
+import torchopt
 
 
 def computeGramMatrix(A, B):
@@ -78,23 +79,32 @@ def SparseMetaOptNetHead_SVM_dual(query, support, support_labels, n_way, n_shot,
         predictions = inner_model(params, inputs)
         return F.cross_entropy(predictions, targets)
 
-    # TODO: custom root
-    def inner_solver(inputs, targets):
-        n_support = inputs.size(1)
-        params = torch.zeros(
-            (inputs.shape[0], n_support, n_way),
-            dtype=inputs.dtype,
-            device=inputs.device,
-            requires_grad=True
-        )
+    def optimality_fun(params, inputs, targets):
+        with torch.enable_grad():
+            grads = vmap(grad(inner_loss))(params, inputs, targets)
+            return params - prox(params - stepsize * grads)
+
+    @torchopt.diff.implicit.custom_root(
+        optimality_fun,
+        argnums=1,
+        has_aux=False,
+        solve=torchopt.linear_solve.solve_normal_cg(maxiter=5, atol=0)
+    )
+    def inner_solver(params, inputs, targets):
         with torch.enable_grad():
             for _ in range(num_steps):
                 grads = vmap(grad(inner_loss))(params, inputs, targets)
                 params = prox(params - stepsize * grads)
-        
-        return params
+            return params
 
-    params = inner_solver(support, support_labels)
+    n_support = support.size(1)
+    init_params = torch.zeros(
+        (support.size(0), n_support, n_way),
+        dtype=support.dtype,
+        device=support.device,
+        requires_grad=True
+    )
+    params = inner_solver(init_params, support, support_labels)
     query_predictions = vmap(inner_model)(params, query)
     return query_predictions
 
