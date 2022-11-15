@@ -4,10 +4,10 @@ import torch
 # Embedding network used in Meta-learning with differentiable closed-form solvers
 # (Bertinetto et al., in submission to NIPS 2018).
 # They call the ridge rigressor version as "Ridge Regression Differentiable Discriminator (R2D2)."
-  
+
 # Note that they use a peculiar ordering of functions, namely conv-BN-pooling-lrelu,
 # as opposed to the conventional one (conv-BN-lrelu-pooling).
-  
+
 def R2D2_conv_block(in_channels, out_channels, retain_activation=True, keep_prob=1.0):
     block = nn.Sequential(
         nn.Conv2d(in_channels, out_channels, 3, padding=1),
@@ -36,7 +36,7 @@ class R2D2Embedding(nn.Module):
         # Although the authors of R2D2 did not mention this trick in the paper,
         # we were unable to reproduce the result of Bertinetto et al. without resorting to this trick.
         self.block4 = R2D2_conv_block(h3_dim, z_dim, retain_activation=retain_last_activation, keep_prob=0.7)
-  
+
     def forward(self, x):
         b1 = self.block1(x)
         b2 = self.block2(b1)

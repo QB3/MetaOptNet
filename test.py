@@ -35,10 +35,10 @@ def get_model(options):
     else:
         print ("Cannot recognize the network type")
         assert(False)
-        
+
     # Choose the classification head
     if opt.head == 'ProtoNet':
-        cls_head = ClassificationHead(base_learner='ProtoNet').cuda()    
+        cls_head = ClassificationHead(base_learner='ProtoNet').cuda()
     elif opt.head == 'Ridge':
         cls_head = ClassificationHead(base_learner='Ridge').cuda()
     elif opt.head == 'R2D2':
@@ -48,7 +48,7 @@ def get_model(options):
     else:
         print ("Cannot recognize the classification head type")
         assert(False)
-        
+
     return (network, cls_head)
 
 def get_dataset(options):
@@ -72,7 +72,7 @@ def get_dataset(options):
     else:
         print ("Cannot recognize the dataset type")
         assert(False)
-        
+
     return (dataset_test, data_loader)
 
 if __name__ == '__main__':
@@ -111,20 +111,20 @@ if __name__ == '__main__':
     )
 
     set_gpu(opt.gpu)
-    
+
     log_file_path = os.path.join(os.path.dirname(opt.load), "test_log.txt")
     log(log_file_path, str(vars(opt)))
 
     # Define the models
     (embedding_net, cls_head) = get_model(opt)
-    
+
     # Load saved model checkpoints
     saved_models = torch.load(opt.load)
     embedding_net.load_state_dict(saved_models['embedding'])
     embedding_net.eval()
     cls_head.load_state_dict(saved_models['head'])
     cls_head.eval()
-    
+
     # Evaluate on test set
     test_accuracies = []
     for i, batch in enumerate(tqdm(dloader_test()), 1):
@@ -132,10 +132,10 @@ if __name__ == '__main__':
 
         n_support = opt.way * opt.shot
         n_query = opt.way * opt.query
-                
+
         emb_support = embedding_net(data_support.reshape([-1] + list(data_support.shape[-3:])))
         emb_support = emb_support.reshape(1, n_support, -1)
-        
+
         emb_query = embedding_net(data_query.reshape([-1] + list(data_query.shape[-3:])))
         emb_query = emb_query.reshape(1, n_query, -1)
 
@@ -146,11 +146,11 @@ if __name__ == '__main__':
 
         acc = count_accuracy(logits.reshape(-1, opt.way), labels_query.reshape(-1))
         test_accuracies.append(acc.item())
-        
+
         avg = np.mean(np.array(test_accuracies))
         std = np.std(np.array(test_accuracies))
         ci95 = 1.96 * std / np.sqrt(i + 1)
-        
+
         if i % 50 == 0:
             print('Episode [{}/{}]:\t\t\tAccuracy: {:.2f} ± {:.2f} % ({:.2f} %)'\
                   .format(i, opt.episode, avg, ci95, acc))

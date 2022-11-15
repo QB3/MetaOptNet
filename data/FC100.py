@@ -123,7 +123,7 @@ class FC100(data.Dataset):
         mean_pix = [x/255.0 for x in [129.37731888, 124.10583864, 112.47758569]]
 
         std_pix = [x/255.0 for x in [68.20947949, 65.43124043, 70.45866994]]
-        
+
         normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
 
         if (self.phase=='test' or self.phase=='val') or (do_not_use_random_transf==True):

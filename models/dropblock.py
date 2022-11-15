@@ -17,7 +17,7 @@ class DropBlock(nn.Module):
 
         if self.training:
             batch_size, channels, height, width = x.shape
-            
+
             bernoulli = Bernoulli(gamma)
             mask = bernoulli.sample((batch_size, channels, height - (self.block_size - 1), width - (self.block_size - 1))).cuda()
             #print((x.sample[-2], x.sample[-1]))
@@ -34,7 +34,7 @@ class DropBlock(nn.Module):
     def _compute_block_mask(self, mask):
         left_padding = int((self.block_size-1) / 2)
         right_padding = int(self.block_size / 2)
-        
+
         batch_size, channels, height, width = mask.shape
         #print ("mask", mask[0][0])
         non_zero_idxs = mask.nonzero()
@@ -47,7 +47,7 @@ class DropBlock(nn.Module):
             ]
         ).t().cuda()
         offsets = torch.cat((torch.zeros(self.block_size**2, 2).cuda().long(), offsets.long()), 1)
-        
+
         if nr_blocks > 0:
             non_zero_idxs = non_zero_idxs.repeat(self.block_size ** 2, 1)
             offsets = offsets.repeat(nr_blocks, 1).view(-1, 4)
@@ -59,6 +59,6 @@ class DropBlock(nn.Module):
             padded_mask[block_idxs[:, 0], block_idxs[:, 1], block_idxs[:, 2], block_idxs[:, 3]] = 1.
         else:
             padded_mask = F.pad(mask, (left_padding, right_padding, left_padding, right_padding))
-            
+
         block_mask = 1 - padded_mask#[:height, :width]
         return block_mask

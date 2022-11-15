@@ -147,7 +147,7 @@ class MiniImageNet(data.Dataset):
                 transforms.ToTensor(),
                 normalize
             ])
-            
+
     def __getitem__(self, index):
         img, label = self.data[index], self.labels[index]
         # doing this so that it is consistent with all other datasets

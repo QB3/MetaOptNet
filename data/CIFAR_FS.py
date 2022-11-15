@@ -123,18 +123,18 @@ class CIFAR_FS(data.Dataset):
         mean_pix = [x/255.0 for x in [129.37731888, 124.10583864, 112.47758569]]
 
         std_pix = [x/255.0 for x in [68.20947949, 65.43124043, 70.45866994]]
-        
+
         normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
 
         if (self.phase=='test' or self.phase=='val') or (do_not_use_random_transf==True):
-            
+
             self.transform = transforms.Compose([
                 lambda x: np.asarray(x),
                 transforms.ToTensor(),
                 normalize
             ])
         else:
-            
+
             self.transform = transforms.Compose([
                 transforms.RandomCrop(32, padding=4),
                 transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
@@ -143,7 +143,7 @@ class CIFAR_FS(data.Dataset):
                 transforms.ToTensor(),
                 normalize
             ])
-            
+
     def __getitem__(self, index):
         img, label = self.data[index], self.labels[index]
         # doing this so that it is consistent with all other datasets
