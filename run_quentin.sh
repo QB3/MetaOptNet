@@ -16,4 +16,4 @@
 module load anaconda/3
 conda activate torchopt
 
-python train.py --save-path "/home/mila/q/quentin.bertrand/MetaOptNet/" --train-shot 15 --head SparseLogReg --network ProtoNet --dataset miniImageNet --eps 0.1
+python train.py --gpu 0 --save-path "/home/mila/q/quentin.bertrand/MetaOptNet/" --train-shot 15 --head Sparse-SVM --network ProtoNet --dataset miniImageNet --eps 0.1

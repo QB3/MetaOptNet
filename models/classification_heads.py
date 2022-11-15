@@ -97,9 +97,9 @@ def SparseMetaOptNetHead_SVM_dual(query, support, support_labels, n_way, n_shot,
                 params = prox(params - stepsize * grads)
             return params
 
-    n_support = support.size(1)
+    n_feats = support.size(2)
     init_params = torch.zeros(
-        (support.size(0), n_support, n_way),
+        (support.size(0), n_feats, n_way),
         dtype=support.dtype,
         device=support.device,
         requires_grad=True
