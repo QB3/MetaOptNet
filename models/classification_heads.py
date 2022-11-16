@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from qpth.qp import QPFunction
 from functorch import vmap, grad
 import torchopt
+from ot.utils import proj_simplex
 
 
 def computeGramMatrix(A, B):
@@ -76,7 +77,8 @@ def SparseMetaOptNetHead_SVM_dual(
     # def prox(params):
     #     return F.softshrink(params, threshold)
     def prox(params):
-        return F.softmax(params, dim=2)  # TODO
+        return proj_simplex(params)  # TODO
+        # return F.softmax(params, dim=2)  # TODO
 
     def inner_model(params_dual, query, support, target_one_hot):
         result = torch.matmul(query, support.T)
@@ -94,7 +96,7 @@ def SparseMetaOptNetHead_SVM_dual(
     def optimality_fun(params, inputs, targets):
         with torch.enable_grad():
             grads = vmap(grad(inner_loss))(params, inputs, targets)
-            return params - prox(params - stepsize * grads)
+            return params - vmap(prox)(params - stepsize * grads)
 
     @torchopt.diff.implicit.custom_root(
         optimality_fun,
@@ -106,7 +108,7 @@ def SparseMetaOptNetHead_SVM_dual(
         with torch.enable_grad():
             for _ in range(num_steps):
                 grads = vmap(grad(inner_loss))(params, inputs, targets)
-                params = prox(params - stepsize * grads)
+                params = vmap(prox)(params - stepsize * grads)
             return params
 
     n_samples = support.size(1)
@@ -125,7 +127,7 @@ def SparseMetaOptNetHead_SVM_dual(
     params_dual = inner_solver(init_params_dual, support, target_one_hot)
     query_predictions = vmap(inner_model)(
         params_dual, query, support, target_one_hot)
-    import ipdb; ipdb.set_trace()
+    # import ipdb; ipdb.set_trace()
     return query_predictions
 
 
