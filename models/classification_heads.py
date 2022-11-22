@@ -8,8 +8,7 @@ import torch.nn.functional as F
 from qpth.qp import QPFunction
 from functorch import vmap, grad
 import torchopt
-from ot.utils import proj_simplex
-
+from utils import inner_step_pgd_
 
 def computeGramMatrix(A, B):
     """
@@ -68,21 +67,6 @@ def batched_kronecker(matrix1, matrix2):
     matrix2_flatten = matrix2.reshape(matrix2.size()[0], -1)
     return torch.bmm(matrix1_flatten.unsqueeze(2), matrix2_flatten.unsqueeze(1)).reshape([matrix1.size()[0]] + list(matrix1.size()[1:]) + list(matrix2.size()[1:])).permute([0, 1, 3, 2, 4]).reshape(matrix1.size(0), matrix1.size(1) * matrix2.size(1), matrix1.size(2) * matrix2.size(2))
 
-
-# TODO add test grad inner loss
-def grad_inner_loss(params_dual, inputs, targets_one_hot, lambda2):
-    result = inputs.mT @ (params_dual - targets_one_hot)
-    result = inputs @ result / lambda2
-    result += targets_one_hot
-    return result
-
-def prox(params):
-    return proj_simplex(params.mT).mT
-
-def inner_step_pgd_(params, inputs, targets_one_hot, stepsizes, lambda2):
-    """One step on proximal gradient descent."""
-    grads = grad_inner_loss(params, inputs, targets_one_hot, lambda2)
-    return prox(params - stepsizes * grads)
 
 def SparseMetaOptNetHead_SVM_dual(
         query, support, support_labels, n_way, n_shot, num_steps=5,
