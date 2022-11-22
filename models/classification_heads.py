@@ -70,8 +70,8 @@ def batched_kronecker(matrix1, matrix2):
 
 
 def SparseMetaOptNetHead_SVM_dual(
-        query, support, support_labels, n_way, n_shot, num_steps=15,
-        C=0.001):
+        query, support, support_labels, n_way, n_shot, num_steps=5,
+        C=0.0001):
         # C=1_000):
     target_one_hot = F.one_hot(support_labels, n_way)
     lambda2 = 1 / C
@@ -86,10 +86,10 @@ def SparseMetaOptNetHead_SVM_dual(
         return prox(params - stepsize * grads)
 
     def prox(params):
-        return proj_simplex(params)  # TODO
+        return proj_simplex(params.mT).mT
 
     def inner_model(params_dual, query, support, target_one_hot):
-        result = torch.matmul(query, support.T)
+        result = torch.matmul(query, support.mT)
         result = torch.matmul(result, target_one_hot - params_dual)
         return result / lambda2
 
@@ -98,16 +98,29 @@ def SparseMetaOptNetHead_SVM_dual(
             torch.square(inputs.T @ (targets_one_hot - params_dual))) / lambda2
         result += torch.sum(targets_one_hot * params_dual)
         return result
-        # predictions = inner_model(params, inputs)
-        # return F.cross_entropy(predictions, targets)
 
-    def optimality_fun(params, inputs, targets):
+    # TODO add test grad inner loss
+    def grad_inner_loss(params_dual, inputs, targets_one_hot):
+        result = inputs.mT @ (params_dual - targets_one_hot)
+        result = inputs @ result / lambda2
+        result += targets_one_hot
+        return result
+
+    def optimality_fun(params, inputs, targets, stepsize):
         with torch.enable_grad():
-            grads = vmap(grad(inner_loss))(params, inputs, targets)
+            grads = vmap(grad(inner_loss))(
+                params, inputs, targets)
             return params - vmap(prox_and_grad_step)(
                 params, grads, stepsize)
             # return params - vmap(prox)(params - stepsize * grads)
 
+
+    def inner_step_pgd(params, inputs, targets, stepsizes):
+        """One step on proximal gradient descent."""
+        grads = grad_inner_loss(params, inputs, targets)
+        return prox(params - stepsizes * grads)
+
+    # TODO add tests for the inner sovler
     @torchopt.diff.implicit.custom_root(
         optimality_fun,
         argnums=1,
@@ -116,12 +129,17 @@ def SparseMetaOptNetHead_SVM_dual(
         solve=torchopt.linear_solve.solve_normal_cg(
             maxiter=5, atol=0, ridge=1 / torch.max(stepsize) / 1000)
     )
-    def inner_solver(params, inputs, targets):
-        with torch.enable_grad():
+    def inner_solver(params, inputs, targets, stepsizes):
+        # with torch.enable_grad():
+        with torch.no_grad():
             for _ in range(num_steps):
-                grads = vmap(grad(inner_loss))(params, inputs, targets)
-                params = vmap(prox_and_grad_step)(
-                    params, grads, stepsize)
+                params = vmap(inner_step_pgd, in_dims=(0, 0, 0,0))(
+                    params, inputs, targets, stepsizes)
+                # params = vmap(inner_step_pgd)(
+                #     params, inputs, targets, stepsizes)
+                # grads = vmap(grad(inner_loss))(
+                #     params, inputs, targets)
+                # params = vmap(prox_and_grad_step)(params, grads, stepsizes)
             return params
 
     n_samples = support.size(1)
@@ -132,7 +150,8 @@ def SparseMetaOptNetHead_SVM_dual(
         requires_grad=True
     ) / n_way
 
-    params_dual = inner_solver(init_params_dual, support, target_one_hot)
+    params_dual = inner_solver(
+        init_params_dual, support, target_one_hot, stepsize)
     query_predictions = vmap(inner_model)(
         params_dual, query, support, target_one_hot)
 
