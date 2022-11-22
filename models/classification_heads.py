@@ -69,6 +69,21 @@ def batched_kronecker(matrix1, matrix2):
     return torch.bmm(matrix1_flatten.unsqueeze(2), matrix2_flatten.unsqueeze(1)).reshape([matrix1.size()[0]] + list(matrix1.size()[1:]) + list(matrix2.size()[1:])).permute([0, 1, 3, 2, 4]).reshape(matrix1.size(0), matrix1.size(1) * matrix2.size(1), matrix1.size(2) * matrix2.size(2))
 
 
+# TODO add test grad inner loss
+def grad_inner_loss(params_dual, inputs, targets_one_hot, lambda2):
+    result = inputs.mT @ (params_dual - targets_one_hot)
+    result = inputs @ result / lambda2
+    result += targets_one_hot
+    return result
+
+def prox(params):
+    return proj_simplex(params.mT).mT
+
+def inner_step_pgd_(params, inputs, targets_one_hot, stepsizes, lambda2):
+    """One step on proximal gradient descent."""
+    grads = grad_inner_loss(params, inputs, targets_one_hot, lambda2)
+    return prox(params - stepsizes * grads)
+
 def SparseMetaOptNetHead_SVM_dual(
         query, support, support_labels, n_way, n_shot, num_steps=5,
         C=0.0001):
@@ -80,13 +95,7 @@ def SparseMetaOptNetHead_SVM_dual(
         def get_stepsize(gramm):
             return 1 / torch.max(
                 torch.abs(torch.linalg.eigvals(gramm)))
-        stepsize = vmap(get_stepsize)(gramm)
-
-    def prox_and_grad_step(params, grads, stepsize):
-        return prox(params - stepsize * grads)
-
-    def prox(params):
-        return proj_simplex(params.mT).mT
+        stepsizes = vmap(get_stepsize)(gramm)
 
     def inner_model(params_dual, query, support, target_one_hot):
         result = torch.matmul(query, support.mT)
@@ -94,64 +103,45 @@ def SparseMetaOptNetHead_SVM_dual(
         return result / lambda2
 
     def inner_loss(params_dual, inputs, targets_one_hot):
+        """Could be deleted. Let's keep it for hte moment."""
         result = torch.sum(
             torch.square(inputs.T @ (targets_one_hot - params_dual))) / lambda2
         result += torch.sum(targets_one_hot * params_dual)
         return result
 
-    # TODO add test grad inner loss
-    def grad_inner_loss(params_dual, inputs, targets_one_hot):
-        result = inputs.mT @ (params_dual - targets_one_hot)
-        result = inputs @ result / lambda2
-        result += targets_one_hot
-        return result
-
-    def optimality_fun(params, inputs, targets, stepsize):
+    def optimality_fun(params, inputs, targets_one_hot, stepsizes):
         with torch.enable_grad():
-            grads = vmap(grad(inner_loss))(
-                params, inputs, targets)
-            return params - vmap(prox_and_grad_step)(
-                params, grads, stepsize)
-            # return params - vmap(prox)(params - stepsize * grads)
+            return vmap(fixed_point)(params, inputs, targets_one_hot, stepsizes)
 
+    def fixed_point(params, inputs, targets_one_hot, stepsizes):
+        """Fixe-point without batching."""
+        return params - inner_step_pgd(
+            params, inputs, targets_one_hot, stepsizes)
 
-    def inner_step_pgd(params, inputs, targets, stepsizes):
-        """One step on proximal gradient descent."""
-        grads = grad_inner_loss(params, inputs, targets)
-        return prox(params - stepsizes * grads)
+    def inner_step_pgd(params, inputs, targets_one_hot, stepsizes):
+        """One step on proximal gradient descent without batching."""
+        return inner_step_pgd_(
+            params, inputs, targets_one_hot, stepsizes, lambda2)
 
-    # TODO add tests for the inner sovler
     @torchopt.diff.implicit.custom_root(
-        optimality_fun,
-        argnums=1,
-        has_aux=False,
-        # ridge=1 is a huge hack
+        optimality_fun, argnums=1, has_aux=False,
         solve=torchopt.linear_solve.solve_normal_cg(
-            maxiter=5, atol=0, ridge=1 / torch.max(stepsize) / 1000)
-    )
-    def inner_solver(params, inputs, targets, stepsizes):
-        # with torch.enable_grad():
+            maxiter=5, atol=0, ridge=1 / torch.max(stepsizes) / 1000))
+    def inner_solver(params, inputs, targets_one_hot, stepsizes):
+        """Inner solver with batching."""
         with torch.no_grad():
             for _ in range(num_steps):
-                params = vmap(inner_step_pgd, in_dims=(0, 0, 0,0))(
-                    params, inputs, targets, stepsizes)
-                # params = vmap(inner_step_pgd)(
-                #     params, inputs, targets, stepsizes)
-                # grads = vmap(grad(inner_loss))(
-                #     params, inputs, targets)
-                # params = vmap(prox_and_grad_step)(params, grads, stepsizes)
+                params = vmap(inner_step_pgd)(
+                    params, inputs, targets_one_hot, stepsizes)
             return params
 
     n_samples = support.size(1)
     init_params_dual = torch.ones(
-        (support.size(0), n_samples, n_way),
-        dtype=support.dtype,
-        device=support.device,
-        requires_grad=True
-    ) / n_way
+        (support.size(0), n_samples, n_way), dtype=support.dtype,
+        device=support.device, requires_grad=True) / n_way
 
     params_dual = inner_solver(
-        init_params_dual, support, target_one_hot, stepsize)
+        init_params_dual, support, target_one_hot, stepsizes)
     query_predictions = vmap(inner_model)(
         params_dual, query, support, target_one_hot)
 
