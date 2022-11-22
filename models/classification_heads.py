@@ -8,7 +8,8 @@ import torch.nn.functional as F
 from qpth.qp import QPFunction
 from functorch import vmap, grad
 import torchopt
-from utils import inner_step_pgd_
+from models.utils import inner_step_pgd_
+
 
 def computeGramMatrix(A, B):
     """
