@@ -71,7 +71,7 @@ def batched_kronecker(matrix1, matrix2):
 
 def SparseMetaOptNetHead_SVM_dual(
         query, support, support_labels, n_way, n_shot, num_steps=5,
-        C=0.0001):
+        C=0.001, dual_reg=1):
         # C=1_000):
     target_one_hot = F.one_hot(support_labels, n_way)
     lambda2 = 1 / C
@@ -79,7 +79,7 @@ def SparseMetaOptNetHead_SVM_dual(
     with torch.no_grad():
         def get_stepsize(gramm):
             return 1 / torch.max(
-                torch.abs(torch.linalg.eigvals(gramm)))
+                torch.abs(torch.linalg.eigvals(gramm) + dual_reg / lambda2))
         stepsizes = vmap(get_stepsize)(gramm)
 
     def inner_model(params_dual, query, support, target_one_hot):
@@ -87,12 +87,12 @@ def SparseMetaOptNetHead_SVM_dual(
         result = torch.matmul(result, target_one_hot - params_dual)
         return result / lambda2
 
-    def inner_loss(params_dual, inputs, targets_one_hot):
-        """Could be deleted. Let's keep it for hte moment."""
-        result = torch.sum(
-            torch.square(inputs.T @ (targets_one_hot - params_dual))) / lambda2
-        result += torch.sum(targets_one_hot * params_dual)
-        return result
+    # def inner_loss(params_dual, inputs, targets_one_hot):
+    #     """Could be deleted. Let's keep it for hte moment."""
+    #     result = torch.sum(
+    #         torch.square(inputs.T @ (targets_one_hot - params_dual))) / lambda2
+    #     result += torch.sum(targets_one_hot * params_dual)
+    #     return result
 
     def optimality_fun(params, inputs, targets_one_hot, stepsizes):
         with torch.enable_grad():
@@ -106,7 +106,7 @@ def SparseMetaOptNetHead_SVM_dual(
     def inner_step_pgd(params, inputs, targets_one_hot, stepsizes):
         """One step on proximal gradient descent without batching."""
         return inner_step_pgd_(
-            params, inputs, targets_one_hot, stepsizes, lambda2)
+            params, inputs, targets_one_hot, stepsizes, lambda2, dual_reg)
 
     @torchopt.diff.implicit.custom_root(
         optimality_fun, argnums=1, has_aux=False,
