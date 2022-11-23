@@ -71,7 +71,7 @@ def batched_kronecker(matrix1, matrix2):
 
 def SparseMetaOptNetHead_SVM_dual(
         query, support, support_labels, n_way, n_shot, num_steps=5,
-        C=0.001, dual_reg=1):
+        C=0.001, dual_reg=1, algo='pgd'):
         # C=1_000):
     target_one_hot = F.one_hot(support_labels, n_way)
     lambda2 = 1 / C
@@ -116,8 +116,12 @@ def SparseMetaOptNetHead_SVM_dual(
         """Inner solver with batching."""
         with torch.no_grad():
             for _ in range(num_steps):
-                params = vmap(inner_step_pgd)(
-                    params, inputs, targets_one_hot, stepsizes)
+                if algo == 'pgd':
+                    params = vmap(inner_step_pgd)(
+                        params, inputs, targets_one_hot, stepsizes)
+                # else:
+                #     params, inputsT_params = vmap(inner_step_pgd)(
+                #         params, inputs, targets_one_hot, stepsizes)
             return params
 
     n_samples = support.size(1)
