@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from qpth.qp import QPFunction
 from functorch import vmap, grad
 import torchopt
-from models.utils import inner_step_pgd_
+from models.utils import inner_step_pgd_, BST
 
 
 def computeGramMatrix(A, B):
@@ -83,10 +83,11 @@ def SparseMetaOptNetHead_SVM_dual(
         stepsizes = vmap(get_stepsize)(gramm)
 
 
-    # TODO adapt inner model by adding lambda1
     def inner_model(params_dual, query, support, target_one_hot):
-        result = torch.matmul(query, support.mT)
-        result = torch.matmul(result, target_one_hot - params_dual)
+        # TODO adapt inner model by adding lambda1
+        result = torch.matmul(support.mT, target_one_hot - params_dual)
+        result = BST(result, lambda1)
+        result = torch.matmul(query, result)
         return result / lambda2
 
     # def inner_loss(params_dual, inputs, targets_one_hot):
@@ -136,6 +137,19 @@ def SparseMetaOptNetHead_SVM_dual(
         init_params_dual, support, target_one_hot, stepsizes)
     query_predictions = vmap(inner_model)(
         params_dual, query, support, target_one_hot)
+
+    def get_sparsity(params_dual, support, target_one_hot):
+        with torch.no_grad():
+            coef = torch.matmul(support.mT, target_one_hot - params_dual)
+            coef = BST(coef, lambda1)
+            # import ipdb; ipdb.set_trace()
+            sparsity = ((
+                torch.linalg.norm(coef, axis=1) != 0) * torch.ones(
+                    coef.shape[0], dtype=support.dtype,
+                    device=support.device)).mean()
+            return sparsity
+    sparsity = vmap(get_sparsity)(params_dual, support, target_one_hot)
+    print(sparsity.mean().item())
 
     return query_predictions
 

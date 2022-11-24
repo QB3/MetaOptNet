@@ -1,13 +1,24 @@
 import torch
 from ot.utils import proj_simplex
 
+
+def BST(params, lambda1):
+    """Block soft-thresholding"""
+    if lambda1 == 0.:
+        return params
+    else:
+        norm_j = torch.linalg.norm(params, axis=1, keepdim=True)
+        result = torch.nn.functional.relu(1 - lambda1 / norm_j) * params
+        return result
+
 # TODO add test grad inner loss
 def grad_inner_loss(
         params_dual, inputs, targets_one_hot, lambda1, lambda2, dual_reg=0):
     result = inputs.mT @ (params_dual - targets_one_hot)
-    norm_j = torch.linalg.norm(result, axis=1, keepdim=True)
-    if lambda1 != 0:
-        result = torch.nn.functional.relu(1 - lambda1 / norm_j) * result
+    result = BST(result, lambda1)
+    # norm_j = torch.linalg.norm(result, axis=1, keepdim=True)
+    # if lambda1 != 0:
+    #     result = torch.nn.functional.relu(1 - lambda1 / norm_j) * result
     result = inputs @ result
     result += dual_reg * (params_dual - targets_one_hot)
     result /= lambda2
