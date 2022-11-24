@@ -71,7 +71,7 @@ def batched_kronecker(matrix1, matrix2):
 
 def SparseMetaOptNetHead_SVM_dual(
         query, support, support_labels, n_way, n_shot, num_steps=5,
-        C=0.001, dual_reg=1, algo='pgd'):
+        C=0.001, lambda1=1., dual_reg=1, algo='pgd'):
         # C=1_000):
     target_one_hot = F.one_hot(support_labels, n_way)
     lambda2 = 1 / C
@@ -82,6 +82,8 @@ def SparseMetaOptNetHead_SVM_dual(
                 torch.abs(torch.linalg.eigvals(gramm) + dual_reg / lambda2))
         stepsizes = vmap(get_stepsize)(gramm)
 
+
+    # TODO adapt inner model by adding lambda1
     def inner_model(params_dual, query, support, target_one_hot):
         result = torch.matmul(query, support.mT)
         result = torch.matmul(result, target_one_hot - params_dual)
@@ -106,7 +108,8 @@ def SparseMetaOptNetHead_SVM_dual(
     def inner_step_pgd(params, inputs, targets_one_hot, stepsizes):
         """One step on proximal gradient descent without batching."""
         return inner_step_pgd_(
-            params, inputs, targets_one_hot, stepsizes, lambda2, dual_reg)
+            params, inputs, targets_one_hot, stepsizes,
+            lambda1, lambda2, dual_reg)
 
     @torchopt.diff.implicit.custom_root(
         optimality_fun, argnums=1, has_aux=False,
