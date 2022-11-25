@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
+import wandb
 
 from models.classification_heads import ClassificationHead
 from models.R2D2_embedding import R2D2Embedding
@@ -102,8 +103,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num-epoch', type=int, default=60,
                             help='number of training epochs')
-    parser.add_argument('--save-epoch', type=int, default=10,
-                            help='frequency of model saving')
     parser.add_argument('--train-shot', type=int, default=15,
                             help='number of support examples per training class')
     parser.add_argument('--val-shot', type=int, default=5,
@@ -118,7 +117,6 @@ if __name__ == '__main__':
                             help='number of classes in one training episode')
     parser.add_argument('--test-way', type=int, default=5,
                             help='number of classes in one test (or validation) episode')
-    parser.add_argument('--save-path', default='./experiments/exp_1')
     parser.add_argument('--gpu', default='0, 1, 2, 3')
     parser.add_argument('--network', type=str, default='ProtoNet',
                             help='choose which embedding network to use. ProtoNet, R2D2, ResNet')
@@ -132,6 +130,13 @@ if __name__ == '__main__':
                             help='epsilon of label smoothing')
 
     opt = parser.parse_args()
+
+    wandb.init(
+        entity='utimateteam',
+        project='metaoptnet',
+        config=opt,
+        settings=wandb.Settings(start_method='fork'),
+    )
 
     (dataset_train, dataset_val, data_loader) = get_dataset(opt)
 
@@ -161,10 +166,8 @@ if __name__ == '__main__':
     )
 
     set_gpu(opt.gpu)
-    check_dir('./experiments/')
-    check_dir(opt.save_path)
 
-    log_file_path = os.path.join(opt.save_path, "train_log.txt")
+    log_file_path = os.path.join(wandb.run.dir, "train_log.txt")
     log(log_file_path, str(vars(opt)))
 
     (embedding_net, cls_head) = get_model(opt)
@@ -196,7 +199,6 @@ if __name__ == '__main__':
         _, _ = [x.train() for x in (embedding_net, cls_head)]
 
         train_accuracies = []
-        train_losses = []
 
         for i, batch in enumerate(tqdm(dloader_train(epoch)), 1):
             data_support, labels_support, data_query, labels_query, _, _ = [x.cuda() for x in batch]
@@ -222,9 +224,14 @@ if __name__ == '__main__':
             acc = count_accuracy(logit_query.reshape(-1, opt.train_way), labels_query.reshape(-1))
 
             train_accuracies.append(acc.item())
-            train_losses.append(loss.item())
 
             if (i % 10 == 0):
+                wandb.log({
+                    'train/epoch': epoch,
+                    'train/batch': i,
+                    'train/loss': loss.item(),
+                    'train/accuracy': acc
+                })
                 train_acc_avg = np.mean(np.array(train_accuracies))
                 log(log_file_path, 'Train Epoch: {}\tBatch: [{}/{}]\tLoss: {:.4f}\tAccuracy: {:.2f} % ({:.2f} %)'.format(
                             epoch, i, len(dloader_train), loss.item(), train_acc_avg, acc))
@@ -266,7 +273,7 @@ if __name__ == '__main__':
         if val_acc_avg > max_val_acc:
             max_val_acc = val_acc_avg
             torch.save({'embedding': embedding_net.state_dict(), 'head': cls_head.state_dict()},\
-                       os.path.join(opt.save_path, 'best_model.pth'))
+                       os.path.join(wandb.run.dir, 'best_model.pth'))
             log(log_file_path, 'Validation Epoch: {}\t\t\tLoss: {:.4f}\tAccuracy: {:.2f} ± {:.2f} % (Best)'\
                   .format(epoch, val_loss_avg, val_acc_avg, val_acc_ci95))
         else:
@@ -274,10 +281,21 @@ if __name__ == '__main__':
                   .format(epoch, val_loss_avg, val_acc_avg, val_acc_ci95))
 
         torch.save({'embedding': embedding_net.state_dict(), 'head': cls_head.state_dict()}\
-                   , os.path.join(opt.save_path, 'last_epoch.pth'))
+                   , os.path.join(wandb.run.dir, 'last_epoch.pth'))
 
-        if epoch % opt.save_epoch == 0:
-            torch.save({'embedding': embedding_net.state_dict(), 'head': cls_head.state_dict()}\
-                       , os.path.join(opt.save_path, 'epoch_{}.pth'.format(epoch)))
+        elapsed_time = timer.measure()
+        total_time = timer.measure(epoch / float(opt.num_epoch))
+        log(log_file_path, 'Elapsed Time: {}/{}\n'.format(elapsed_time, total_time))
 
-        log(log_file_path, 'Elapsed Time: {}/{}\n'.format(timer.measure(), timer.measure(epoch / float(opt.num_epoch))))
+        wandb.log({
+            'val/epoch': epoch,
+            'val/loss': val_loss_avg,
+            'val/accuracy/mean': val_acc_avg,
+            'val/accuracy/ci95': val_acc_ci95,
+            'val/elapsed_time': elapsed_time,
+            'val/total_time': total_time,
+        }, commit=epoch >= opt.num_epoch)
+
+    wandb.save('train_log.txt', policy='now')
+    wandb.save('best_model.pth', policy='now')
+    wandb.save('last_epoch.pth', policy='now')
