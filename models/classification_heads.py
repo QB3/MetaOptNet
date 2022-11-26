@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from qpth.qp import QPFunction
 from functorch import vmap, grad
 import torchopt
-from models.utils import inner_step_pgd_, BST
+from models.utils import inner_step_pgd_, inner_step_pcd_, BST
 
 
 def computeGramMatrix(A, B):
@@ -71,9 +71,9 @@ def batched_kronecker(matrix1, matrix2):
 
 def SparseMetaOptNetHead_SVM_dual(
         query, support, support_labels, n_way, n_shot, num_steps=5,
-        C=0.001, lambda1=1., dual_reg=1, algo='pgd'):
+        C=0.001, lambda1=0., dual_reg=1., algo='pgd'):
         # C=1_000):
-    target_one_hot = F.one_hot(support_labels, n_way)
+    targets_one_hot = F.one_hot(support_labels, n_way)
     lambda2 = 1 / C
     gramm = torch.matmul(support, support.mT) / lambda2
     with torch.no_grad():
@@ -82,10 +82,14 @@ def SparseMetaOptNetHead_SVM_dual(
                 torch.abs(torch.linalg.eigvals(gramm) + dual_reg / lambda2))
         stepsizes = vmap(get_stepsize)(gramm)
 
+        def get_stepsize_pcd(inputs):
+            return 1 / (torch.linalg.norm(inputs, axis=1, keepdim=True) ** 2 / lambda2 + dual_reg / lambda2)
 
-    def inner_model(params_dual, query, support, target_one_hot):
+        stepsizes_pcd = vmap(get_stepsize_pcd)(support)
+
+    def inner_model(params_dual, query, support, targets_one_hot):
         # TODO adapt inner model by adding lambda1
-        result = torch.matmul(support.mT, target_one_hot - params_dual)
+        result = torch.matmul(support.mT, targets_one_hot - params_dual)
         result = BST(result, lambda1)
         result = torch.matmul(query, result)
         return result / lambda2
@@ -112,6 +116,14 @@ def SparseMetaOptNetHead_SVM_dual(
             params, inputs, targets_one_hot, stepsizes,
             lambda1, lambda2, dual_reg)
 
+    def inner_step_pcd(
+            params, inputs, inputsT_params, inputsT_targets_one_hot,
+            targets_one_hot, stepsizes_pcd):
+        """One step on proximal coordinate descent without batching."""
+        return inner_step_pcd_(
+            params, inputs, inputsT_params, inputsT_targets_one_hot, targets_one_hot, stepsizes_pcd,
+            lambda1, lambda2, dual_reg)
+
     @torchopt.diff.implicit.custom_root(
         optimality_fun, argnums=1, has_aux=False,
         solve=torchopt.linear_solve.solve_normal_cg(
@@ -119,10 +131,21 @@ def SparseMetaOptNetHead_SVM_dual(
     def inner_solver(params, inputs, targets_one_hot, stepsizes):
         """Inner solver with batching."""
         with torch.no_grad():
+            if algo == 'pcd':
+                # import ipdb; ipdb.set_trace()
+                inputsT_params = inputs.mT @ params
+                inputsT_targets_one_hot = inputs.mT @  targets_one_hot.type(inputs.dtype)
+                # inputsT_targets_one_hot = inputs.mT @  torch.tensor(targets_one_hot, dtype=support.dtype, device=support.device)
+
             for _ in range(num_steps):
                 if algo == 'pgd':
                     params = vmap(inner_step_pgd)(
                         params, inputs, targets_one_hot, stepsizes)
+                elif algo == 'pcd':
+                    params, inputsT_params = vmap(inner_step_pcd)(
+                        params, inputs, inputsT_params,
+                        inputsT_targets_one_hot,
+                        targets_one_hot, stepsizes)
                 # else:
                 #     params, inputsT_params = vmap(inner_step_pgd)(
                 #         params, inputs, targets_one_hot, stepsizes)
@@ -133,14 +156,18 @@ def SparseMetaOptNetHead_SVM_dual(
         (support.size(0), n_samples, n_way), dtype=support.dtype,
         device=support.device, requires_grad=True) / n_way
 
-    params_dual = inner_solver(
-        init_params_dual, support, target_one_hot, stepsizes)
+    if algo == 'pgd':
+        params_dual = inner_solver(
+            init_params_dual, support, targets_one_hot, stepsizes)
+    else:
+        params_dual = inner_solver(
+            init_params_dual, support, targets_one_hot, stepsizes_pcd)
     query_predictions = vmap(inner_model)(
-        params_dual, query, support, target_one_hot)
+        params_dual, query, support, targets_one_hot)
 
-    def get_sparsity(params_dual, support, target_one_hot):
+    def get_sparsity(params_dual, support, targets_one_hot):
         with torch.no_grad():
-            coef = torch.matmul(support.mT, target_one_hot - params_dual)
+            coef = torch.matmul(support.mT, targets_one_hot - params_dual)
             coef = BST(coef, lambda1)
             # import ipdb; ipdb.set_trace()
             sparsity = ((
@@ -148,8 +175,8 @@ def SparseMetaOptNetHead_SVM_dual(
                     coef.shape[0], dtype=support.dtype,
                     device=support.device)).mean()
             return sparsity
-    sparsity = vmap(get_sparsity)(params_dual, support, target_one_hot)
-    print(sparsity.mean().item())
+    sparsity = vmap(get_sparsity)(params_dual, support, targets_one_hot)
+    # print(sparsity.mean().item())
 
     return query_predictions
 

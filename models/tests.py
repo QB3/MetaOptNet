@@ -39,7 +39,7 @@ targets_one_hot_t = torch.from_numpy(targets_one_hot)
 
 for _ in range(1_000):
     params_dual_t  = inner_step_pgd_(
-        params_dual_t, X_t, targets_one_hot_t, stepsizes, lambda2)
+        params_dual_t, X_t, targets_one_hot_t, stepsizes, 0, lambda2)
 
 params_primal_t = X_t.mT @ (targets_one_hot_t- params_dual_t) / lambda2
 
@@ -53,11 +53,11 @@ X_t_params = X_t.mT @ params_dual_t
 targets_one_hot_t = torch.from_numpy(targets_one_hot)
 X_t_target_one_hot = X_t.mT @ targets_one_hot_t
 
-stepsizes_pcd = lambda2 / np.linalg.norm(X, axis=1) ** 2
+stepsizes_pcd = lambda2 / torch.linalg.norm(X_t, axis=1) ** 2
 
 for _ in range(100):
     params_dual_t, X_t_params = inner_step_pcd_(
-        params_dual_t, X_t, X_t_params, X_t_target_one_hot, targets_one_hot_t, stepsizes_pcd, lambda2, 0)
+        params_dual_t, X_t, X_t_params, X_t_target_one_hot, targets_one_hot_t, stepsizes_pcd, lambda2, 0.)
     # X_t_params = X_t.mT @ params_dual_t
 
 params_primal_t_pcd = X_t.mT @ (targets_one_hot_t- params_dual_t) / lambda2
