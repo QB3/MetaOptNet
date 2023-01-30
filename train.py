@@ -212,7 +212,8 @@ if __name__ == '__main__':
             emb_query = embedding_net(data_query.reshape([-1] + list(data_query.shape[-3:])))
             emb_query = emb_query.reshape(opt.episodes_per_batch, train_n_query, -1)
 
-            logit_query = cls_head(emb_query, emb_support, labels_support, opt.train_way, opt.train_shot)
+            logit_query, sparsity = cls_head(
+                emb_query, emb_support, labels_support, opt.train_way, opt.train_shot)
 
             smoothed_one_hot = one_hot(labels_query.reshape(-1), opt.train_way)
             smoothed_one_hot = smoothed_one_hot * (1 - opt.eps) + (1 - smoothed_one_hot) * opt.eps / (opt.train_way - 1)
@@ -230,7 +231,8 @@ if __name__ == '__main__':
                     'train/epoch': epoch,
                     'train/batch': i,
                     'train/loss': loss.item(),
-                    'train/accuracy': acc
+                    'train/accuracy': acc,
+                    'train/sparsity': sparsity
                 })
                 train_acc_avg = np.mean(np.array(train_accuracies))
                 log(log_file_path, 'Train Epoch: {}\tBatch: [{}/{}]\tLoss: {:.4f}\tAccuracy: {:.2f} % ({:.2f} %)'.format(
@@ -257,7 +259,9 @@ if __name__ == '__main__':
             emb_query = embedding_net(data_query.reshape([-1] + list(data_query.shape[-3:])))
             emb_query = emb_query.reshape(1, test_n_query, -1)
 
-            logit_query = cls_head(emb_query, emb_support, labels_support, opt.test_way, opt.val_shot)
+            logit_query, sparsity = cls_head(
+                emb_query, emb_support, labels_support, opt.test_way, opt.
+                val_shot)
 
             loss = x_entropy(logit_query.reshape(-1, opt.test_way), labels_query.reshape(-1))
             acc = count_accuracy(logit_query.reshape(-1, opt.test_way), labels_query.reshape(-1))
@@ -297,6 +301,7 @@ if __name__ == '__main__':
             'val/accuracy/ci95': val_acc_ci95,
             'val/elapsed_time': elapsed_time,
             'val/total_time': total_time,
+            'val/sparsity': sparsity,
         }, commit=epoch >= opt.num_epoch)
 
     wandb.save('train_log.txt', policy='now')
