@@ -132,7 +132,6 @@ def SparseMetaOptNetHead_SVM_dual(
         """Inner solver with batching."""
         with torch.no_grad():
             if algo == 'pcd':
-                # import ipdb; ipdb.set_trace()
                 inputsT_params = inputs.mT @ params
                 inputsT_targets_one_hot = inputs.mT @  targets_one_hot.type(inputs.dtype)
                 # inputsT_targets_one_hot = inputs.mT @  torch.tensor(targets_one_hot, dtype=support.dtype, device=support.device)
