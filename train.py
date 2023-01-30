@@ -276,6 +276,9 @@ if __name__ == '__main__':
                        os.path.join(wandb.run.dir, 'best_model.pth'))
             log(log_file_path, 'Validation Epoch: {}\t\t\tLoss: {:.4f}\tAccuracy: {:.2f} ± {:.2f} % (Best)'\
                   .format(epoch, val_loss_avg, val_acc_avg, val_acc_ci95))
+            wandb.run.summary['val/best/loss'] = val_loss_avg
+            wandb.run.summary['val/best/accuracy/mean'] = val_acc_avg
+            wandb.run.summary['val/best/accuracy/ci95'] = val_acc_ci95
         else:
             log(log_file_path, 'Validation Epoch: {}\t\t\tLoss: {:.4f}\tAccuracy: {:.2f} ± {:.2f} %'\
                   .format(epoch, val_loss_avg, val_acc_avg, val_acc_ci95))
