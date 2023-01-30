@@ -177,7 +177,7 @@ def SparseMetaOptNetHead_SVM_dual(
     sparsity = vmap(get_sparsity)(params_dual, support, targets_one_hot)
     # print(sparsity.mean().item())
 
-    return query_predictions
+    return query_predictions, sparsity.mean().item()
 
 
 def MetaOptNetHead_Ridge(query, support, support_labels, n_way, n_shot, lambda_reg=50.0, double_precision=False):
@@ -726,6 +726,7 @@ class ClassificationHead(nn.Module):
 
     def forward(self, query, support, support_labels, n_way, n_shot, **kwargs):
         if self.enable_scale:
-            return self.scale * self.head(query, support, support_labels, n_way, n_shot, **kwargs)
+            logit, sparsity = self.head(query, support, support_labels, n_way, n_shot, **kwargs)
+            return self.scale * logit, sparsity
         else:
             return self.head(query, support, support_labels, n_way, n_shot, **kwargs)
