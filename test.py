@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from torch.autograd import Variable
 
 from tqdm import tqdm
+from pathlib import Path
 
 from models.protonet_embedding import ProtoNetEmbedding
 from models.R2D2_embedding import R2D2Embedding
@@ -19,15 +20,16 @@ from utils import pprint, set_gpu, Timer, count_accuracy, log
 
 import numpy as np
 import os
+import wandb
 
-def get_model(options):
+def get_model(config):
     # Choose the embedding network
-    if options.network == 'ProtoNet':
+    if config['network'] == 'ProtoNet':
         network = ProtoNetEmbedding().cuda()
-    elif options.network == 'R2D2':
+    elif config['network'] == 'R2D2':
         network = R2D2Embedding().cuda()
-    elif options.network == 'ResNet':
-        if options.dataset == 'miniImageNet' or options.dataset == 'tieredImageNet':
+    elif config['network'] == 'ResNet':
+        if config['dataset'] == 'miniImageNet' or config['dataset'] == 'tieredImageNet':
             network = resnet12(avg_pool=False, drop_rate=0.1, dropblock_size=5).cuda()
             network = torch.nn.DataParallel(network, device_ids=[0, 1, 2, 3])
         else:
@@ -37,15 +39,15 @@ def get_model(options):
         assert(False)
 
     # Choose the classification head
-    if opt.head == 'ProtoNet':
+    if config['head'] == 'ProtoNet':
         cls_head = ClassificationHead(base_learner='ProtoNet').cuda()
-    elif opt.head == 'Ridge':
+    elif config['head'] == 'Ridge':
         cls_head = ClassificationHead(base_learner='Ridge').cuda()
-    elif opt.head == 'R2D2':
+    elif config['head'] == 'R2D2':
         cls_head = ClassificationHead(base_learner='R2D2').cuda()
-    elif opt.head == 'SVM':
+    elif config['head'] == 'SVM':
         cls_head = ClassificationHead(base_learner='SVM-CS').cuda()
-    elif opt.head == 'Sparse-SVM':
+    elif config['head'] == 'Sparse-SVM':
         cls_head = ClassificationHead(base_learner='Sparse-SVM').cuda()
     else:
         print ("Cannot recognize the classification head type")
@@ -53,21 +55,21 @@ def get_model(options):
 
     return (network, cls_head)
 
-def get_dataset(options):
+def get_dataset(config):
     # Choose the embedding network
-    if options.dataset == 'miniImageNet':
+    if config['dataset'] == 'miniImageNet':
         from data.mini_imagenet import MiniImageNet, FewShotDataloader
         dataset_test = MiniImageNet(phase='test')
         data_loader = FewShotDataloader
-    elif options.dataset == 'tieredImageNet':
+    elif config['dataset'] == 'tieredImageNet':
         from data.tiered_imagenet import tieredImageNet, FewShotDataloader
         dataset_test = tieredImageNet(phase='test')
         data_loader = FewShotDataloader
-    elif options.dataset == 'CIFAR_FS':
+    elif config['dataset'] == 'CIFAR_FS':
         from data.CIFAR_FS import CIFAR_FS, FewShotDataloader
         dataset_test = CIFAR_FS(phase='test')
         data_loader = FewShotDataloader
-    elif options.dataset == 'FC100':
+    elif config['dataset'] == 'FC100':
         from data.FC100 import FC100, FewShotDataloader
         dataset_test = FC100(phase='test')
         data_loader = FewShotDataloader
@@ -82,6 +84,8 @@ if __name__ == '__main__':
     parser.add_argument('--gpu', default='0')
     parser.add_argument('--load', default='./experiments/exp_1/best_model.pth',
                             help='path of the checkpoint file')
+    parser.add_argument('--run_id', type=str, required=True,
+                            help='run id in Wandb')
     parser.add_argument('--episode', type=int, default=1000,
                             help='number of episodes to test')
     parser.add_argument('--way', type=int, default=5,
@@ -90,15 +94,18 @@ if __name__ == '__main__':
                             help='number of support examples per training class')
     parser.add_argument('--query', type=int, default=15,
                             help='number of query examples per training class')
-    parser.add_argument('--network', type=str, default='ProtoNet',
-                            help='choose which embedding network to use. ProtoNet, R2D2, ResNet')
-    parser.add_argument('--head', type=str, default='ProtoNet',
-                            help='choose which embedding network to use. ProtoNet, Ridge, R2D2, SVM, Sparse-SVM')
-    parser.add_argument('--dataset', type=str, default='miniImageNet',
-                            help='choose which classification head to use. miniImageNet, tieredImageNet, CIFAR_FS, FC100')
 
     opt = parser.parse_args()
-    (dataset_test, data_loader) = get_dataset(opt)
+
+    api = wandb.Api()
+    run = api.run(opt.run_id)
+    run.config[f'test_{opt.shot}-shot_{opt.way}-way'] = vars(opt)
+    run.update()
+    (dataset_test, data_loader) = get_dataset(run.config)
+
+    # Create temporary folder
+    root = Path(os.getenv('SLURM_TMPDIR')) / run.id
+    root.mkdir(exist_ok=True)
 
     dloader_test = data_loader(
         dataset=dataset_test,
@@ -112,16 +119,16 @@ if __name__ == '__main__':
         epoch_size=opt.episode, # num of batches per epoch
     )
 
-    set_gpu(opt.gpu)
-
-    log_file_path = os.path.join(os.path.dirname(opt.load), "test_log.txt")
-    log(log_file_path, str(vars(opt)))
+    set_gpu(run.config['gpu'])
+    log(str(root / f'test_{opt.shot}-shot_{opt.way}-way_log.txt'), str(vars(opt)))
+    run.upload_file(str(root / f'test_{opt.shot}-shot_{opt.way}-way_log.txt'), str(root))
 
     # Define the models
-    (embedding_net, cls_head) = get_model(opt)
+    (embedding_net, cls_head) = get_model(run.config)
 
     # Load saved model checkpoints
-    saved_models = torch.load(opt.load)
+    run.file('best_model.pth').download(root=root)
+    saved_models = torch.load(root / 'best_model.pth')
     embedding_net.load_state_dict(saved_models['embedding'])
     embedding_net.eval()
     cls_head.load_state_dict(saved_models['head'])
@@ -141,7 +148,7 @@ if __name__ == '__main__':
         emb_query = embedding_net(data_query.reshape([-1] + list(data_query.shape[-3:])))
         emb_query = emb_query.reshape(1, n_query, -1)
 
-        if opt.head == 'SVM':
+        if run.config['head'] == 'SVM':
             logits = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot, maxIter=3)
         else:
             logits = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot)
@@ -156,3 +163,7 @@ if __name__ == '__main__':
         if i % 50 == 0:
             print('Episode [{}/{}]:\t\t\tAccuracy: {:.2f} ± {:.2f} % ({:.2f} %)'\
                   .format(i, opt.episode, avg, ci95, acc))
+
+    run.summary[f'test/{opt.shot}-shot_{opt.way}-way/accuracy/mean'] = avg
+    run.summary[f'test/{opt.shot}-shot_{opt.way}-way/accuracy/ci95'] = ci95
+    run.summary.update()
