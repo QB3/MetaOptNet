@@ -71,10 +71,10 @@ def batched_kronecker(matrix1, matrix2):
 
 def SparseMetaOptNetHead_SVM_dual(
         query, support, support_labels, n_way, n_shot, num_steps=5,
-        C=0.001, lambda1=0., dual_reg=1., algo='pgd'):
+        lambda2=1000., lambda1=0., dual_reg=1., algo='pgd'):
         # C=1_000):
     targets_one_hot = F.one_hot(support_labels, n_way)
-    lambda2 = 1 / C
+    # lambda2 = 1 / C
     gramm = torch.matmul(support, support.mT) / lambda2
     with torch.no_grad():
         def get_stepsize(gramm):
@@ -170,7 +170,7 @@ def SparseMetaOptNetHead_SVM_dual(
             coef = BST(coef, lambda1)
             # import ipdb; ipdb.set_trace()
             sparsity = ((
-                torch.linalg.norm(coef, axis=1) != 0) * torch.ones(
+                torch.linalg.norm(coef, axis=1) == 0) * torch.ones(
                     coef.shape[0], dtype=support.dtype,
                     device=support.device)).mean()
             return sparsity

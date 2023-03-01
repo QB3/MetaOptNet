@@ -128,6 +128,14 @@ if __name__ == '__main__':
                             help='number of episodes per batch')
     parser.add_argument('--eps', type=float, default=0.0,
                             help='epsilon of label smoothing')
+    parser.add_argument('--num_steps', type=int, default=5,
+                            help='number of inner steps')
+    parser.add_argument('--lambda1', type=float, default=0.0,
+                            help='amount of l1 regularization')
+    parser.add_argument('--lambda2', type=float, default=1000.,
+                            help='amount of l2 regularization')
+    parser.add_argument('--dual_reg', type=float, default=1.,
+                            help='amount of dual regularization')
 
     opt = parser.parse_args()
 
@@ -213,7 +221,7 @@ if __name__ == '__main__':
             emb_query = emb_query.reshape(opt.episodes_per_batch, train_n_query, -1)
 
             logit_query, sparsity = cls_head(
-                emb_query, emb_support, labels_support, opt.train_way, opt.train_shot)
+                emb_query, emb_support, labels_support, opt.train_way, opt.train_shot, lambda1=opt.lambda1, lambda2=opt.lambda2, num_steps=opt.num_steps, dual_reg=opt.dual_reg)
 
             smoothed_one_hot = one_hot(labels_query.reshape(-1), opt.train_way)
             smoothed_one_hot = smoothed_one_hot * (1 - opt.eps) + (1 - smoothed_one_hot) * opt.eps / (opt.train_way - 1)
@@ -261,7 +269,7 @@ if __name__ == '__main__':
 
             logit_query, sparsity = cls_head(
                 emb_query, emb_support, labels_support, opt.test_way, opt.
-                val_shot)
+                val_shot, lambda1=opt.lambda1, lambda2=opt.lambda2, num_steps=opt.num_steps, dual_reg=opt.dual_reg)
 
             loss = x_entropy(logit_query.reshape(-1, opt.test_way), labels_query.reshape(-1))
             acc = count_accuracy(logit_query.reshape(-1, opt.test_way), labels_query.reshape(-1))
