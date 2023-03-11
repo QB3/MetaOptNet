@@ -172,12 +172,12 @@ def SparseMetaOptNetHead_SVM_dual(
             sparsity = ((
                 torch.linalg.norm(coef, axis=1) == 0) * torch.ones(
                     coef.shape[0], dtype=support.dtype,
-                    device=support.device)).mean()
+                    device=support.device))
             return sparsity
     sparsity = vmap(get_sparsity)(params_dual, support, targets_one_hot)
     # print(sparsity.mean().item())
 
-    return query_predictions, sparsity.mean().item()
+    return query_predictions, sparsity
 
 
 def MetaOptNetHead_Ridge(query, support, support_labels, n_way, n_shot, lambda_reg=50.0, double_precision=False):

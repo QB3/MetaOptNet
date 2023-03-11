@@ -22,6 +22,8 @@ import numpy as np
 import os
 import wandb
 
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 def get_model(config):
     # Choose the embedding network
     if config['network'] == 'ProtoNet':
@@ -31,7 +33,7 @@ def get_model(config):
     elif config['network'] == 'ResNet':
         if config['dataset'] == 'miniImageNet' or config['dataset'] == 'tieredImageNet':
             network = resnet12(avg_pool=False, drop_rate=0.1, dropblock_size=5).cuda()
-            network = torch.nn.DataParallel(network, device_ids=[0, 1, 2, 3])
+            network = torch.nn.DataParallel(network, device_ids=[0])
         else:
             network = resnet12(avg_pool=False, drop_rate=0.1, dropblock_size=2).cuda()
     else:
@@ -136,6 +138,7 @@ if __name__ == '__main__':
 
     # Evaluate on test set
     test_accuracies = []
+    patterns = []
     for i, batch in enumerate(tqdm(dloader_test()), 1):
         data_support, labels_support, data_query, labels_query, _, _ = [x.cuda() for x in batch]
 
@@ -149,9 +152,11 @@ if __name__ == '__main__':
         emb_query = emb_query.reshape(1, n_query, -1)
 
         if run.config['head'] == 'SVM':
-            logits = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot, maxIter=3)
+            logits, sparsity = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot, maxIter=3)
         else:
-            logits = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot)
+            logits, sparsity = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot)
+        
+        patterns.append(sparsity.detach().cpu().numpy())
 
         acc = count_accuracy(logits.reshape(-1, opt.way), labels_query.reshape(-1))
         test_accuracies.append(acc.item())
@@ -163,6 +168,11 @@ if __name__ == '__main__':
         if i % 50 == 0:
             print('Episode [{}/{}]:\t\t\tAccuracy: {:.2f} ± {:.2f} % ({:.2f} %)'\
                   .format(i, opt.episode, avg, ci95, acc))
+
+    patterns = np.concatenate(patterns, axis=0)
+    with open(root / 'sparsity_patterns.npy', 'wb') as f:
+        np.save(f, patterns)
+    run.upload_file(str(root / 'sparsity_patterns.npy'), str(root))
 
     run.summary[f'test/{opt.shot}-shot_{opt.way}-way/accuracy/mean'] = avg
     run.summary[f'test/{opt.shot}-shot_{opt.way}-way/accuracy/ci95'] = ci95

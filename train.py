@@ -17,6 +17,9 @@ from models.ResNet12_embedding import resnet12
 
 from utils import set_gpu, Timer, count_accuracy, check_dir, log
 
+if os.environ.get('CUDA_VISIBLE_DEVICES', '').startswith('MIG'):
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 def one_hot(indices, depth):
     """
     Returns a one-hot tensor.
@@ -240,7 +243,7 @@ if __name__ == '__main__':
                     'train/batch': i,
                     'train/loss': loss.item(),
                     'train/accuracy': acc,
-                    'train/sparsity': sparsity
+                    'train/sparsity': sparsity.mean().item()
                 })
                 train_acc_avg = np.mean(np.array(train_accuracies))
                 log(log_file_path, 'Train Epoch: {}\tBatch: [{}/{}]\tLoss: {:.4f}\tAccuracy: {:.2f} % ({:.2f} %)'.format(
@@ -309,7 +312,7 @@ if __name__ == '__main__':
             'val/accuracy/ci95': val_acc_ci95,
             'val/elapsed_time': elapsed_time,
             'val/total_time': total_time,
-            'val/sparsity': sparsity,
+            'val/sparsity': sparsity.mean().item(),
         }, commit=epoch >= opt.num_epoch)
 
     wandb.save('train_log.txt', policy='now')
