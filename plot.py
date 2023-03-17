@@ -24,18 +24,33 @@ api = wandb.Api()
 
 # Get the runs from a list of run IDs
 run_ids = [
-    'zqfum2lf',
-    '30zar58q',
-    # '2nfm4d5e',
-    # '64lrdci0',
-    # '3m68byyk',
-    # '290c8dgz',
-    # '2klxyp5a',
-    # '71rzwrzo',
-    # '2nu5kh9k',
-    # '3m8fxufh',
-    # '2qwl1wmf'
+    '6mhjbs4z',
+    'x66vofjg',
+    '23wojcvb',
+    '1485on1f',
+    '7aweqltf',
+    '3p4ras6v',
+    '2kyxx42r',
+    # '1zkxy09x',
+    # '2shvnogq',
+    # 'i0z370es',
+    # '1xgx2xxr',
+    # '2t373q1m',
+    # 'c4xffwia',
+    # 'ewgrzr8d'
+    # '3ka93nnb',
 ]
+# 'zqfum2lf',
+# '30zar58q',
+# '2nfm4d5e',
+# '64lrdci0',
+# '3m68byyk',
+# '290c8dgz',
+# '2klxyp5a',
+# '71rzwrzo',
+# '2nu5kh9k',
+# '3m8fxufh',
+# '2qwl1wmf'
 
 configure_plt()
 
@@ -116,9 +131,9 @@ save_fig = True
 if save_fig:
     fig_dir = ''
     fig_name = 'meta_learning_sparsity'
-    
+
     print(fig_name)
-    
+
     plt.savefig(
       fig_dir + fig_name + '.pdf', bbox_inches='tight',
       dpi=600
