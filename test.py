@@ -154,8 +154,11 @@ if __name__ == '__main__':
         if run.config['head'] == 'SVM':
             logits, sparsity = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot, maxIter=3)
         else:
-            logits, sparsity = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot)
-        
+            logits, sparsity = cls_head(emb_query, emb_support, labels_support, opt.way, opt.shot,
+                lambda1=run.config['lambda1'], lambda2=run.config['lambda2'],
+                num_steps=run.config['num_steps'], dual_reg=run.config['dual_reg']
+            )
+
         patterns.append(sparsity.detach().cpu().numpy())
 
         acc = count_accuracy(logits.reshape(-1, opt.way), labels_query.reshape(-1))

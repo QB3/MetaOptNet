@@ -12,6 +12,7 @@ from matplotlib.lines import Line2D
 from plot_utils import configure_plt, _legend_title_left
 
 api = wandb.Api()
+force = True
 
 # Get the runs programmatically
 # runs = api.runs('utimateteam/metaoptnet',
@@ -68,6 +69,8 @@ for idx_run, run_id in enumerate(tqdm(run_ids)):
     root.mkdir(exist_ok=True)
 
     try:
+        if force:
+            raise RuntimeError('Forcing the computation of the sparsity')
         # Get the sparsity patterns from wandb
         run.file('sparsity_patterns.npy').download(root=root, replace=True)
     except:
