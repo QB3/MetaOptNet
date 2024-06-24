@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
+import wandb
 
 from models.classification_heads import ClassificationHead
 from models.R2D2_embedding import R2D2Embedding
@@ -16,11 +17,14 @@ from models.ResNet12_embedding import resnet12
 
 from utils import set_gpu, Timer, count_accuracy, check_dir, log
 
+if os.environ.get('CUDA_VISIBLE_DEVICES', '').startswith('MIG'):
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+
 def one_hot(indices, depth):
     """
     Returns a one-hot tensor.
     This is a PyTorch equivalent of Tensorflow's tf.one_hot.
-        
+
     Parameters:
       indices:  a (n_batch, m) Tensor or (m) Tensor.
       depth: a scalar. Represents the depth of the one hot dimension.
@@ -30,11 +34,12 @@ def one_hot(indices, depth):
     encoded_indicies = torch.zeros(indices.size() + torch.Size([depth])).cuda()
     index = indices.view(indices.size()+torch.Size([1]))
     encoded_indicies = encoded_indicies.scatter_(1,index,1)
-    
+
     return encoded_indicies
 
 def get_model(options):
     # Choose the embedding network
+    gpus = [int(gpu) for gpu in options.gpu.split(',')]
     if options.network == 'ProtoNet':
         network = ProtoNetEmbedding().cuda()
     elif options.network == 'R2D2':
@@ -42,26 +47,31 @@ def get_model(options):
     elif options.network == 'ResNet':
         if options.dataset == 'miniImageNet' or options.dataset == 'tieredImageNet':
             network = resnet12(avg_pool=False, drop_rate=0.1, dropblock_size=5).cuda()
-            network = torch.nn.DataParallel(network, device_ids=[0, 1, 2, 3])
+            network = torch.nn.DataParallel(network, device_ids=gpus)
+            # network = torch.nn.DataParallel(network, device_ids=gpus)
         else:
             network = resnet12(avg_pool=False, drop_rate=0.1, dropblock_size=2).cuda()
     else:
         print ("Cannot recognize the network type")
         assert(False)
-        
+
     # Choose the classification head
     if options.head == 'ProtoNet':
         cls_head = ClassificationHead(base_learner='ProtoNet').cuda()
+    elif options.head == 'SparseLogReg':
+        cls_head = ClassificationHead(base_learner='SparseLogReg').cuda()
     elif options.head == 'Ridge':
         cls_head = ClassificationHead(base_learner='Ridge').cuda()
     elif options.head == 'R2D2':
         cls_head = ClassificationHead(base_learner='R2D2').cuda()
     elif options.head == 'SVM':
         cls_head = ClassificationHead(base_learner='SVM-CS').cuda()
+    elif opt.head == 'Sparse-SVM':
+        cls_head = ClassificationHead(base_learner='Sparse-SVM').cuda()
     else:
         print ("Cannot recognize the dataset type")
         assert(False)
-        
+
     return (network, cls_head)
 
 def get_dataset(options):
@@ -89,15 +99,13 @@ def get_dataset(options):
     else:
         print ("Cannot recognize the dataset type")
         assert(False)
-        
+
     return (dataset_train, dataset_val, data_loader)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num-epoch', type=int, default=60,
                             help='number of training epochs')
-    parser.add_argument('--save-epoch', type=int, default=10,
-                            help='frequency of model saving')
     parser.add_argument('--train-shot', type=int, default=15,
                             help='number of support examples per training class')
     parser.add_argument('--val-shot', type=int, default=5,
@@ -112,21 +120,35 @@ if __name__ == '__main__':
                             help='number of classes in one training episode')
     parser.add_argument('--test-way', type=int, default=5,
                             help='number of classes in one test (or validation) episode')
-    parser.add_argument('--save-path', default='./experiments/exp_1')
     parser.add_argument('--gpu', default='0, 1, 2, 3')
     parser.add_argument('--network', type=str, default='ProtoNet',
                             help='choose which embedding network to use. ProtoNet, R2D2, ResNet')
     parser.add_argument('--head', type=str, default='ProtoNet',
-                            help='choose which classification head to use. ProtoNet, Ridge, R2D2, SVM')
+                            help='choose which classification head to use. ProtoNet, Ridge, R2D2, SVM, Sparse-SVM')
     parser.add_argument('--dataset', type=str, default='miniImageNet',
                             help='choose which classification head to use. miniImageNet, tieredImageNet, CIFAR_FS, FC100')
     parser.add_argument('--episodes-per-batch', type=int, default=8,
                             help='number of episodes per batch')
     parser.add_argument('--eps', type=float, default=0.0,
                             help='epsilon of label smoothing')
+    parser.add_argument('--num_steps', type=int, default=5,
+                            help='number of inner steps')
+    parser.add_argument('--lambda1', type=float, default=0.0,
+                            help='amount of l1 regularization')
+    parser.add_argument('--lambda2', type=float, default=1000.,
+                            help='amount of l2 regularization')
+    parser.add_argument('--dual_reg', type=float, default=1.,
+                            help='amount of dual regularization')
 
     opt = parser.parse_args()
-    
+
+    wandb.init(
+        entity='utimateteam',
+        project='metaoptnet',
+        config=opt,
+        settings=wandb.Settings(start_method='fork'),
+    )
+
     (dataset_train, dataset_val, data_loader) = get_dataset(opt)
 
     # Dataloader of Gidaris & Komodakis (CVPR 2018)
@@ -155,18 +177,16 @@ if __name__ == '__main__':
     )
 
     set_gpu(opt.gpu)
-    check_dir('./experiments/')
-    check_dir(opt.save_path)
-    
-    log_file_path = os.path.join(opt.save_path, "train_log.txt")
+
+    log_file_path = os.path.join(wandb.run.dir, "train_log.txt")
     log(log_file_path, str(vars(opt)))
 
     (embedding_net, cls_head) = get_model(opt)
-    
-    optimizer = torch.optim.SGD([{'params': embedding_net.parameters()}, 
+
+    optimizer = torch.optim.SGD([{'params': embedding_net.parameters()},
                                  {'params': cls_head.parameters()}], lr=0.1, momentum=0.9, \
                                           weight_decay=5e-4, nesterov=True)
-    
+
     lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
 
@@ -174,23 +194,22 @@ if __name__ == '__main__':
 
     timer = Timer()
     x_entropy = torch.nn.CrossEntropyLoss()
-    
+
     for epoch in range(1, opt.num_epoch + 1):
         # Train on the training split
         lr_scheduler.step()
-        
+
         # Fetch the current epoch's learning rate
         epoch_learning_rate = 0.1
         for param_group in optimizer.param_groups:
             epoch_learning_rate = param_group['lr']
-            
+
         log(log_file_path, 'Train Epoch: {}\tLearning Rate: {:.4f}'.format(
                             epoch, epoch_learning_rate))
-        
+
         _, _ = [x.train() for x in (embedding_net, cls_head)]
-        
+
         train_accuracies = []
-        train_losses = []
 
         for i, batch in enumerate(tqdm(dloader_train(epoch)), 1):
             data_support, labels_support, data_query, labels_query, _, _ = [x.cuda() for x in batch]
@@ -200,11 +219,12 @@ if __name__ == '__main__':
 
             emb_support = embedding_net(data_support.reshape([-1] + list(data_support.shape[-3:])))
             emb_support = emb_support.reshape(opt.episodes_per_batch, train_n_support, -1)
-            
+
             emb_query = embedding_net(data_query.reshape([-1] + list(data_query.shape[-3:])))
             emb_query = emb_query.reshape(opt.episodes_per_batch, train_n_query, -1)
-            
-            logit_query = cls_head(emb_query, emb_support, labels_support, opt.train_way, opt.train_shot)
+
+            logit_query, sparsity = cls_head(
+                emb_query, emb_support, labels_support, opt.train_way, opt.train_shot, lambda1=opt.lambda1, lambda2=opt.lambda2, num_steps=opt.num_steps, dual_reg=opt.dual_reg)
 
             smoothed_one_hot = one_hot(labels_query.reshape(-1), opt.train_way)
             smoothed_one_hot = smoothed_one_hot * (1 - opt.eps) + (1 - smoothed_one_hot) * opt.eps / (opt.train_way - 1)
@@ -212,17 +232,23 @@ if __name__ == '__main__':
             log_prb = F.log_softmax(logit_query.reshape(-1, opt.train_way), dim=1)
             loss = -(smoothed_one_hot * log_prb).sum(dim=1)
             loss = loss.mean()
-            
-            acc = count_accuracy(logit_query.reshape(-1, opt.train_way), labels_query.reshape(-1))
-            
-            train_accuracies.append(acc.item())
-            train_losses.append(loss.item())
 
-            if (i % 100 == 0):
+            acc = count_accuracy(logit_query.reshape(-1, opt.train_way), labels_query.reshape(-1))
+
+            train_accuracies.append(acc.item())
+
+            if (i % 10 == 0):
+                wandb.log({
+                    'train/epoch': epoch,
+                    'train/batch': i,
+                    'train/loss': loss.item(),
+                    'train/accuracy': acc,
+                    'train/sparsity': sparsity.mean().item()
+                })
                 train_acc_avg = np.mean(np.array(train_accuracies))
                 log(log_file_path, 'Train Epoch: {}\tBatch: [{}/{}]\tLoss: {:.4f}\tAccuracy: {:.2f} % ({:.2f} %)'.format(
                             epoch, i, len(dloader_train), loss.item(), train_acc_avg, acc))
-            
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -232,7 +258,7 @@ if __name__ == '__main__':
 
         val_accuracies = []
         val_losses = []
-        
+
         for i, batch in enumerate(tqdm(dloader_val(epoch)), 1):
             data_support, labels_support, data_query, labels_query, _, _ = [x.cuda() for x in batch]
 
@@ -244,14 +270,16 @@ if __name__ == '__main__':
             emb_query = embedding_net(data_query.reshape([-1] + list(data_query.shape[-3:])))
             emb_query = emb_query.reshape(1, test_n_query, -1)
 
-            logit_query = cls_head(emb_query, emb_support, labels_support, opt.test_way, opt.val_shot)
+            logit_query, sparsity = cls_head(
+                emb_query, emb_support, labels_support, opt.test_way, opt.
+                val_shot, lambda1=opt.lambda1, lambda2=opt.lambda2, num_steps=opt.num_steps, dual_reg=opt.dual_reg)
 
             loss = x_entropy(logit_query.reshape(-1, opt.test_way), labels_query.reshape(-1))
             acc = count_accuracy(logit_query.reshape(-1, opt.test_way), labels_query.reshape(-1))
 
             val_accuracies.append(acc.item())
             val_losses.append(loss.item())
-            
+
         val_acc_avg = np.mean(np.array(val_accuracies))
         val_acc_ci95 = 1.96 * np.std(np.array(val_accuracies)) / np.sqrt(opt.val_episode)
 
@@ -260,18 +288,33 @@ if __name__ == '__main__':
         if val_acc_avg > max_val_acc:
             max_val_acc = val_acc_avg
             torch.save({'embedding': embedding_net.state_dict(), 'head': cls_head.state_dict()},\
-                       os.path.join(opt.save_path, 'best_model.pth'))
+                       os.path.join(wandb.run.dir, 'best_model.pth'))
             log(log_file_path, 'Validation Epoch: {}\t\t\tLoss: {:.4f}\tAccuracy: {:.2f} ± {:.2f} % (Best)'\
                   .format(epoch, val_loss_avg, val_acc_avg, val_acc_ci95))
+            wandb.run.summary['val/best/loss'] = val_loss_avg
+            wandb.run.summary['val/best/accuracy/mean'] = val_acc_avg
+            wandb.run.summary['val/best/accuracy/ci95'] = val_acc_ci95
         else:
             log(log_file_path, 'Validation Epoch: {}\t\t\tLoss: {:.4f}\tAccuracy: {:.2f} ± {:.2f} %'\
                   .format(epoch, val_loss_avg, val_acc_avg, val_acc_ci95))
 
         torch.save({'embedding': embedding_net.state_dict(), 'head': cls_head.state_dict()}\
-                   , os.path.join(opt.save_path, 'last_epoch.pth'))
+                   , os.path.join(wandb.run.dir, 'last_epoch.pth'))
 
-        if epoch % opt.save_epoch == 0:
-            torch.save({'embedding': embedding_net.state_dict(), 'head': cls_head.state_dict()}\
-                       , os.path.join(opt.save_path, 'epoch_{}.pth'.format(epoch)))
+        elapsed_time = timer.measure()
+        total_time = timer.measure(epoch / float(opt.num_epoch))
+        log(log_file_path, 'Elapsed Time: {}/{}\n'.format(elapsed_time, total_time))
 
-        log(log_file_path, 'Elapsed Time: {}/{}\n'.format(timer.measure(), timer.measure(epoch / float(opt.num_epoch))))
+        wandb.log({
+            'val/epoch': epoch,
+            'val/loss': val_loss_avg,
+            'val/accuracy/mean': val_acc_avg,
+            'val/accuracy/ci95': val_acc_ci95,
+            'val/elapsed_time': elapsed_time,
+            'val/total_time': total_time,
+            'val/sparsity': sparsity.mean().item(),
+        }, commit=epoch >= opt.num_epoch)
+
+    wandb.save('train_log.txt', policy='now')
+    wandb.save('best_model.pth', policy='now')
+    wandb.save('last_epoch.pth', policy='now')

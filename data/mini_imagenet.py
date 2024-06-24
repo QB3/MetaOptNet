@@ -10,6 +10,7 @@ import random
 import pickle
 import json
 import math
+import zipfile
 
 import torch
 import torch.utils.data as data
@@ -27,7 +28,8 @@ from pdb import set_trace as breakpoint
 
 
 # Set the appropriate paths of the datasets here.
-_MINI_IMAGENET_DATASET_DIR = '/efs/data/miniimagenet/kwonl/data/miniImageNet_numpy'
+_MINI_IMAGENET_DATASET = '/network/scratch/d/deleutri/meta-learning/metaoptnet/miniImageNet.zip'
+_MINI_IMAGENET_DATASET_DIR = os.path.join(os.getenv('SLURM_TMPDIR'), 'data')
 
 def buildLabelIndex(labels):
     label2inds = {}
@@ -53,6 +55,10 @@ def load_data(file):
 
 class MiniImageNet(data.Dataset):
     def __init__(self, phase='train', do_not_use_random_transf=False):
+        if not os.path.exists(_MINI_IMAGENET_DATASET_DIR):
+            os.makedirs(_MINI_IMAGENET_DATASET_DIR)
+            with zipfile.ZipFile(_MINI_IMAGENET_DATASET, 'r') as f:
+                f.extractall(_MINI_IMAGENET_DATASET_DIR)
 
         self.base_folder = 'miniImagenet'
         assert(phase=='train' or phase=='val' or phase=='test')
@@ -141,7 +147,7 @@ class MiniImageNet(data.Dataset):
                 transforms.ToTensor(),
                 normalize
             ])
-            
+
     def __getitem__(self, index):
         img, label = self.data[index], self.labels[index]
         # doing this so that it is consistent with all other datasets

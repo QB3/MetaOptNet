@@ -4,16 +4,16 @@ import math
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, retain_activation=True):
         super(ConvBlock, self).__init__()
-        
+
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(out_channels)
         )
-        
+
         if retain_activation:
             self.block.add_module("ReLU", nn.ReLU(inplace=True))
         self.block.add_module("MaxPool2d", nn.MaxPool2d(kernel_size=2, stride=2, padding=0))
-        
+
     def forward(self, x):
         out = self.block(x)
         return out

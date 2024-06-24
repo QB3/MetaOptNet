@@ -3,7 +3,7 @@ This repository contains the code for the paper:
 <br>
 [**Meta-Learning with Differentiable Convex Optimization**](https://arxiv.org/pdf/1904.03758.pdf)
 <br>
-Kwonjoon Lee, [Subhransu Maji](https://people.cs.umass.edu/~smaji/), Avinash Ravichandran, [Stefano Soatto](http://web.cs.ucla.edu/~soatto/)   
+Kwonjoon Lee, [Subhransu Maji](https://people.cs.umass.edu/~smaji/), Avinash Ravichandran, [Stefano Soatto](http://web.cs.ucla.edu/~soatto/)
 CVPR 2019 (**Oral**)
 <p align='center'>
   <img src='algorithm.png' width="800px">

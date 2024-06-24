@@ -90,7 +90,7 @@ class tieredImageNet(data.Dataset):
         label_test_categories_test_phase = os.path.join(
             _TIERED_IMAGENET_DATASET_DIR,
             'test_labels.pkl')
-        
+
         if self.phase=='train':
             # During training phase we only load the training phase images
             # of the training categories (aka base categories).
@@ -112,7 +112,7 @@ class tieredImageNet(data.Dataset):
                 # accuracy of the base categories.
                 data_base = load_data(label_train_categories_test_phase)
                 data_base_images = np.load(file_train_categories_test_phase)['images']
-                
+
                 # load data that will be use for evaluating the few-shot recogniton
                 # accuracy on the novel categories.
                 data_novel = load_data(label_test_categories_test_phase)
